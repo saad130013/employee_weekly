@@ -1,48 +1,80 @@
-
-import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="نظام حضور الموظف", layout="wide")
-st.title("🔎 نظام البحث عن الموظف")
+def load_excel_data(file_path):
+    """قراءة جميع الجداول في ملف الإكسل وتنظيف البيانات"""
+    xls = pd.ExcelFile(file_path)
+    sheets_data = {}
+    
+    for sheet_name in xls.sheet_names:
+        df = pd.read_excel(xls, sheet_name=sheet_name, header=1)
+        df = df.dropna(how='all')  # حذف الصفوف الفارغة تماماً
+        sheets_data[sheet_name] = df
+    
+    return sheets_data
 
-# تحميل بيانات الموظفين
-@st.cache_data
-def load_data():
-    return pd.read_excel("DUTY_ROSTER_MAR_2025.V.2.xlsx")
+def search_employee(sheets_data, search_term):
+    """البحث عن الموظف في جميع الجداول"""
+    results = []
+    
+    for sheet_name, df in sheets_data.items():
+        # البحث في الأعمدة الرئيسية
+        mask = (
+            df['NAME (ENG)'].astype(str).str.contains(search_term, case=False, na=False) |
+            df['NAME (AR)'].astype(str).str.contains(search_term, case=False, na=False) |
+            df['EMP#'].astype(str).str.contains(search_term, na=False)
+        )
+        
+        filtered = df[mask]
+        if not filtered.empty:
+            results.append({
+                "Sheet": sheet_name,
+                "Data": filtered.to_dict("records")
+            })
+    
+    return results
 
-df = load_data()
+def display_results(results):
+    """عرض النتائج بطريقة منظمة"""
+    if not results:
+        print("\n❌ لم يتم العثور على أي نتائج!")
+        return
+    
+    print("\n🔍 نتائج البحث:")
+    for idx, result in enumerate(results, 1):
+        print(f"\n{'='*40}\nالجدول: {result['Sheet']}\n{'='*40}")
+        
+        for emp in result['Data']:
+            print(f"\nالموظف #{idx}:")
+            for key, value in emp.items():
+                if pd.notna(value):  # تجاهل القيم الفارغة
+                    print(f"- {key}: {value}")
+            idx += 1
 
-search_type = st.radio("نوع البحث:", ["بالاسم", "برقم الموظف"])
-search_value = st.text_input("🧑‍💼 الاسم أو رقم الموظف")
-
-# البحث
-if search_value:
-    if search_type == "بالاسم":
-        result = df[df["Name"].str.contains(search_value, case=False, na=False)]
-    else:
-        result = df[df["ID"].astype(str).str.contains(search_value, na=False)]
-
-    if not result.empty:
-        for _, row in result.iterrows():
-            st.markdown("---")
-            st.markdown(f"### 🧍‍♂️ {row['Name']} | رقم الموظف: {row['ID']}")
-            st.markdown(f"🏢 الوظيفة: {row.get('Position', 'غير محدد')}")
-            st.markdown(f"📅 الفترة: {row.get('Shift', 'غير محددة')}")
+def main():
+    """واجهة المستخدم الرئيسية"""
+    file_path = "DUTY ROSTER MAR 2025.V.2.xlsx"
+    
+    try:
+        print("📂 جار تحميل الملف...")
+        sheets_data = load_excel_data(file_path)
+        print("✅ تم تحميل الملف بنجاح!")
+        
+        while True:
+            search_term = input("\n🔍 أدخل اسم الموظف أو رقم الموظف (أو 'خروج' للإنهاء): ").strip()
             
-            # جدول الحضور
-            attendance = {
-                "اليوم": ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"],
-                "الحالة": [row.get(day, "غير مسجل") for day in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]]
-            }
-            att_df = pd.DataFrame(attendance)
-            st.write(att_df)
+            if search_term.lower() == 'خروج':
+                print("\n🚪 تم إنهاء البرنامج.")
+                break
+                
+            if not search_term:
+                print("⚠️ الرجاء إدخال مصطلح بحث!")
+                continue
+                
+            results = search_employee(sheets_data, search_term)
+            display_results(results)
+            
+    except Exception as e:
+        print(f"\n❌ حدث خطأ: {str(e)}")
 
-            # نسبة الحضور
-            present_days = sum(1 for v in attendance["الحالة"] if str(v).strip() == "1")
-            total_days = len(attendance["الحالة"])
-            percent = round((present_days / total_days) * 100, 2)
-            st.success(f"✅ نسبة الحضور: %{percent} ({present_days} من {total_days})")
-            if percent < 70:
-                st.warning("⚠️ ملاحظة: نسبة الحضور منخفضة")
-    else:
-        st.warning("🚫 لا توجد نتائج مطابقة")
+if __name__ == "__main__":
+    main()
